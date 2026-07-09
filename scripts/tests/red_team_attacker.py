@@ -67,7 +67,8 @@ async def attack_card_testing(client: httpx.AsyncClient, producer, topic) -> lis
     # 1. 10 small transactions via Kafka to build state
     for _ in range(10):
         tx = _make_tx(user_id, 100) # $1
-        producer.produce(topic=topic.name, key=tx["user_id"], value=tx)
+        msg = topic.serialize(key=tx["user_id"], value=tx)
+        producer.produce(topic=topic.name, key=msg.key, value=msg.value)
         results.append({"action": "KAFKA_INGEST"})
         
     producer.flush()
@@ -90,7 +91,8 @@ async def attack_smurfing(client: httpx.AsyncClient, producer, topic) -> list[di
     # 4 transactions of $9500 to Kafka
     for _ in range(4):
         tx = _make_tx(user_id, 950000)
-        producer.produce(topic=topic.name, key=tx["user_id"], value=tx)
+        msg = topic.serialize(key=tx["user_id"], value=tx)
+        producer.produce(topic=topic.name, key=msg.key, value=msg.value)
         results.append({"action": "KAFKA_INGEST"})
         
     producer.flush()

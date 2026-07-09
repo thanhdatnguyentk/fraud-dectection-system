@@ -113,14 +113,14 @@ python -m scripts.synth.verify_pipeline
 ### Scoring API (Phase 4)
 
 ```bash
-# Khởi FastAPI server (port 8000)
-python -m uvicorn scripts.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+# Khởi FastAPI server (port 8001) với WebSocket Dashboard
+python -m uvicorn scripts.api.main:app --host 0.0.0.0 --port 8001 --workers 1
 
 # Test health
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 
 # Gọi scoring
-curl -X POST http://localhost:8000/api/v1/score -H "Content-Type: application/json" -d '{
+curl -X POST http://localhost:8001/api/v1/score -H "Content-Type: application/json" -d '{
     "tx_id": "01J7F2A4QX9D2PE5K7HBN3M2RX",
     "user_id": "u_8f12c9",
     "card_bin": "448588",
@@ -137,16 +137,19 @@ curl -X POST http://localhost:8000/api/v1/score -H "Content-Type: application/js
 ### Load test + Dashboard (Phase 5)
 
 ```bash
-# Load test API (10 000 request, concurrency 50)
+# Load test API (5000 request, concurrency 100)
 python -m scripts.tests.load_test \
-    --target http://localhost:8000/api/v1/score \
-    --requests 10000 --concurrency 50
+    --target http://localhost:8001/api/v1/score \
+    --requests 5000 --concurrency 100
 
-# Red-team attacker (Phase 5 - chạy các kịch bản adversarial)
-python -m scripts.tests.red_team_attacker
+# Red-team attacker (Chạy các kịch bản tấn công cơ bản)
+python -m scripts.tests.red_team_attacker --mode all
 
-# Streamlit dashboard
-streamlit run scripts/dashboard/app.py
+# GAN-inspired Evasion Attacker (Máy chủ tấn công lách luật)
+python -m scripts.tests.gan_evasion_server
+
+# Mở Dashboard Real-time (WebSockets)
+# Truy cập: http://localhost:8001/dashboard/index.html
 ```
 
 ### Hạ tầng
@@ -255,10 +258,15 @@ fraud-dectection-system/
 │   ├── api/
 │   │   └── main.py                  # FastAPI scoring endpoint
 │   ├── dashboard/
-│   │   └── app.py                   # Streamlit
-│   └── tests/
-│       ├── load_test.py             # async load test API
-│       └── red_team_attacker.py     # adversarial test
+│   │   └── app.py                   # Streamlit (Cũ)
+│   ├── tests/
+│   │   ├── load_test.py             # async load test API
+│   │   ├── gan_evasion_server.py    # Máy chủ tấn công GAN-inspired
+│   │   └── red_team_attacker.py     # adversarial test
+├── dashboard_ui/
+│   ├── index.html                   # HTML Dashboard mới
+│   ├── style.css                    # CSS Dashboard
+│   └── script.js                    # WebSockets Client cho Dashboard
 ├── tests/                           # pytest
 │   ├── test_canonical_schema.py     # 10 tests
 │   ├── test_common.py               # 8 tests

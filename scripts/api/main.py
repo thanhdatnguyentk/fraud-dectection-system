@@ -15,13 +15,14 @@ from typing import Any, Dict, List
 import numpy as np
 import onnxruntime as ort
 import redis.asyncio as redis
-from fastapi import FastAPI, Depends, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Depends, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from simpleeval import simple_eval
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("fds.api")
-
 
 # --- Configuration ---
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -91,9 +92,21 @@ class ScoreResponse(BaseModel):
     latency_ms: float
 
 
-# --- Globals ---
+# --- Globals for Metrics ---
 _redis_pool = None
 _ort_session = None
+
+# Global state for WebSocket dashboard
+_metrics_state = {
+    "total_tx_count": 0,
+    "last_tx_count": 0,
+    "total_latency_ms": 0.0,
+    "latency_count": 0,
+    "total_fraud_count": 0,
+    "recent_txs": [],      # List of dicts
+    "recent_alerts": [],   # List of dicts
+}
+_metrics_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -121,6 +134,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FDS Scoring API", lifespan=lifespan)
+
+# Mount static files for the dashboard
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # --- Dependencies ---
@@ -154,8 +176,8 @@ async def _fetch_user_features(user_id: str, r: redis.Redis) -> dict:
     return merged
 
 
-def _evaluate_rules(tx: TransactionInput, score: float) -> tuple[str, list[str]]:
-    """Evaluate business rules against transaction context and ML score."""
+def _evaluate_rules(tx: TransactionInput, score: float, feats: dict) -> tuple[str, list[str]]:
+    """Evaluate business rules against transaction context, features, and ML score."""
     action = "APPROVE"
     rules_triggered = []
     
@@ -163,10 +185,24 @@ def _evaluate_rules(tx: TransactionInput, score: float) -> tuple[str, list[str]]
     context = tx.model_dump()
     context["score"] = score
     
+    # Convert feature values to numeric safely
+    for k, v in feats.items():
+        try:
+            context[k] = float(v)
+        except (ValueError, TypeError):
+            context[k] = 0.0
+    
+    # Defaults in case features are missing
+    context.setdefault("tx_count_10m", 0.0)
+    context.setdefault("tx_count_30d", 0.0)
+    context.setdefault("amt_sum_1h", 0.0)
+    
     # Hard rules (Deterministic DECLINE)
     hard_rules = {
         "Amount exceeds maximum": "amount_minor > 1000000",  # $10k limit
         "High fraud probability": "score > 0.90",
+        "Velocity spike (Card Testing)": "tx_count_10m > 5", # Caught card testing!
+        "New Account High Velocity": "tx_count_30d <= 5 and tx_count_10m >= 3", # Blocks GAN Attackers
     }
     
     for rule_name, expression in hard_rules.items():
@@ -179,6 +215,8 @@ def _evaluate_rules(tx: TransactionInput, score: float) -> tuple[str, list[str]]
         soft_rules = {
             "Suspiciously high score": "score > 0.70",
             "International high amount": "country != 'US' and amount_minor > 50000",
+            "Smurfing detected": "amt_sum_1h > 4000000", # $40k total in 1 hour
+            "New Account Early Activity": "tx_count_30d <= 5 and tx_count_10m >= 2", # Force review for new users
         }
         for rule_name, expression in soft_rules.items():
             if simple_eval(expression, names=context):
@@ -201,6 +239,12 @@ async def score_transaction(
 ):
     start_time = time.perf_counter()
     
+    # Security Patch: Immediate state update to prevent direct API bypass
+    rt_key = f"feat:user:{tx.user_id}"
+    await r.hincrby(rt_key, "tx_count_10m", 1)
+    await r.hincrby(rt_key, "tx_count_30d", 1)
+    await r.expire(rt_key, 600)  # 10 mins TTL
+    
     # 1. Fetch Features (with SingleFlight)
     feats = await single_flight.do(tx.user_id, _fetch_user_features, tx.user_id, r)
     
@@ -219,18 +263,50 @@ async def score_transaction(
         x_tensor = np.array([vector], dtype=np.float32)
         input_name = ort_sess.get_inputs()[0].name
         
-        # We use run() directly since ONNX CPU inference is typically < 1ms
         result = ort_sess.run(None, {input_name: x_tensor})
-        
-        # Result shape varies by onnxmltools, typically probabilities are in result[1]
         probs = result[1][0]
-        # prob of class 1
         score = float(probs[1] if isinstance(probs, (list, dict, tuple)) or len(probs) > 1 else probs[0])
     
     # 4. Rules Engine
-    action, rules_triggered = _evaluate_rules(tx, score)
+    action, rules_triggered = _evaluate_rules(tx, score, feats)
     
     latency_ms = (time.perf_counter() - start_time) * 1000
+    
+    # --- Update Metrics for Dashboard ---
+    import datetime
+    formatted_amount = f"${tx.amount_minor / 100:,.2f}"
+    time_str = datetime.datetime.now().strftime("%H:%M:%S")
+    
+    async with _metrics_lock:
+        _metrics_state["total_tx_count"] += 1
+        _metrics_state["total_latency_ms"] += latency_ms
+        _metrics_state["latency_count"] += 1
+        
+        # Add to recent tx stream
+        _metrics_state["recent_txs"].insert(0, {
+            "tx_id": tx.tx_id,
+            "user_id": tx.user_id,
+            "amount": formatted_amount,
+            "merchant_id": tx.merchant_id,
+            "time": time_str
+        })
+        if len(_metrics_state["recent_txs"]) > 10:
+            _metrics_state["recent_txs"].pop()
+            
+        # Add to alerts if declined/review
+        if action != "APPROVE":
+            _metrics_state["total_fraud_count"] += 1
+            rule_str = ", ".join(rules_triggered) if rules_triggered else "Model Score"
+            _metrics_state["recent_alerts"].insert(0, {
+                "id": tx.tx_id,
+                "amount": formatted_amount,
+                "rule": rule_str,
+                "type": action.lower(),
+                "time": time_str
+            })
+            if len(_metrics_state["recent_alerts"]) > 50:
+                _metrics_state["recent_alerts"].pop()
+    # -------------------------------------
     
     return ScoreResponse(
         tx_id=tx.tx_id,
@@ -240,4 +316,45 @@ async def score_transaction(
         latency_ms=round(latency_ms, 2)
     )
 
-from pathlib import Path
+# --- WebSocket Metrics Stream ---
+@app.websocket("/ws/metrics")
+async def websocket_metrics(websocket: WebSocket):
+    await websocket.accept()
+    
+    try:
+        while True:
+            # Calculate TPS and average latency for the past second
+            async with _metrics_lock:
+                current_total = _metrics_state["total_tx_count"]
+                current_fraud = _metrics_state.get("total_fraud_count", 0)
+                
+                tps = current_total - _metrics_state["last_tx_count"]
+                _metrics_state["last_tx_count"] = current_total
+                
+                lat_count = _metrics_state["latency_count"]
+                avg_lat = (_metrics_state["total_latency_ms"] / lat_count) if lat_count > 0 else 0.0
+                
+                # Reset latency counters for next second
+                _metrics_state["total_latency_ms"] = 0.0
+                _metrics_state["latency_count"] = 0
+                
+                # Calculate Fraud Rate
+                fraud_rate = (current_fraud / current_total * 100) if current_total > 0 else 0.0
+                
+                payload = {
+                    "tps": tps,
+                    "latency": round(avg_lat, 2),
+                    "fraud_rate": round(fraud_rate, 2),
+                    "recent_txs": _metrics_state["recent_txs"],
+                    "recent_alerts": _metrics_state["recent_alerts"],
+                }
+            
+            await websocket.send_json(payload)
+            await asyncio.sleep(1.0)
+    except WebSocketDisconnect:
+        pass
+
+# Mount Dashboard UI last so it serves static files on /dashboard
+import pathlib
+dashboard_dir = pathlib.Path(__file__).parent.parent.parent / "dashboard_ui"
+app.mount("/dashboard", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")

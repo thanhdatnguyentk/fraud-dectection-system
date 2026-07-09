@@ -4,10 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
     initChart();
     initImportanceChart();
-    populateMockAlerts();
-    populateStreamTable();
-    populateFullAlertsTable();
-    simulateLiveData();
+    initWebSocket();
 });
 
 let liveChart;
@@ -152,97 +149,82 @@ function initImportanceChart() {
     });
 }
 
-const mockAlerts = [
-    { id: "tx_bench_16999321", amount: "$20,000.00", rule: "Amount exceeds maximum", type: "decline", time: "13:42:01" },
-    { id: "tx_bench_16999305", amount: "$5,430.50", rule: "Suspiciously high score", type: "review", time: "13:41:45" },
-    { id: "tx_bench_16999298", amount: "$1,200.00", rule: "High fraud probability", type: "decline", time: "13:40:12" },
-    { id: "tx_bench_16999120", amount: "$15,000.00", rule: "Amount exceeds maximum", type: "decline", time: "13:38:50" },
-    { id: "tx_bench_16998999", amount: "$80,000.00", rule: "International high amount", type: "review", time: "13:35:10" },
-];
 
-function populateMockAlerts() {
-    const list = document.getElementById('alertsList');
-    if(!list) return;
-    list.innerHTML = '';
 
-    mockAlerts.forEach(a => {
-        const div = document.createElement('div');
-        div.className = `alert-item ${a.type}`;
-        div.innerHTML = `
-            <div class="alert-header">
-                <span class="alert-id">${a.id}</span>
-                <span class="alert-amount">${a.amount}</span>
-            </div>
-            <div class="alert-rule">${a.rule}</div>
-        `;
-        list.appendChild(div);
-    });
-}
-
-function populateFullAlertsTable() {
-    const tbody = document.getElementById('fullAlertsBody');
-    if(!tbody) return;
-    tbody.innerHTML = '';
+function initWebSocket() {
+    const ws = new WebSocket(`ws://${window.location.hostname}:8001/ws/metrics`);
     
-    mockAlerts.forEach(a => {
-        const tr = document.createElement('tr');
-        const badgeClass = a.type === 'decline' ? 'badge-decline' : 'badge-review';
-        tr.innerHTML = `
-            <td>${a.id}</td>
-            <td><span class="${badgeClass}">${a.type.toUpperCase()}</span></td>
-            <td>${a.amount}</td>
-            <td style="color: #8a8a9a">${a.rule}</td>
-            <td style="color: #8a8a9a">${a.time}</td>
-        `;
-        tbody.appendChild(tr);
-    });
-}
-
-function populateStreamTable() {
-    const tbody = document.getElementById('streamTableBody');
-    if(!tbody) return;
-    
-    const mccList = ["5411", "5812", "5912", "4511"];
-    let html = '';
-    for(let i=0; i<10; i++) {
-        html += `
-            <tr>
-                <td>tx_live_${Math.floor(Math.random()*1000000)}</td>
-                <td>user_${Math.floor(Math.random()*5000)}</td>
-                <td style="color: var(--accent-green)">$${(Math.random()*500).toFixed(2)}</td>
-                <td>merch_${Math.floor(Math.random()*100)}</td>
-                <td style="color: #8a8a9a">${new Date().toLocaleTimeString()}</td>
-            </tr>
-        `;
-    }
-    tbody.innerHTML = html;
-}
-
-function simulateLiveData() {
-    setInterval(() => {
-        // Update Chart
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        // 1. Update Chart & Metrics
         if(liveChart) {
             const currentData = liveChart.data.datasets[0].data;
             currentData.shift();
-            // Generate a random TPS around 197
-            const newTps = 180 + Math.random() * 40;
-            currentData.push(newTps);
-            
+            currentData.push(data.tps);
             liveChart.update();
             
-            // Update Metric Text
             const tpsEl = document.getElementById('tps-value');
-            if(tpsEl) tpsEl.innerText = newTps.toFixed(1);
+            if(tpsEl) tpsEl.innerText = data.tps.toFixed(1);
             
-            // Random fluctuation for latency
             const latEl = document.getElementById('latency-value');
-            const lat = 150 + Math.random() * 20;
-            if(latEl) latEl.innerText = lat.toFixed(0) + " ms";
+            if(latEl) latEl.innerText = data.latency.toFixed(1) + " ms";
+            
+            const fraudEl = document.getElementById('fraud-rate');
+            if(fraudEl && data.fraud_rate !== undefined) {
+                fraudEl.innerText = data.fraud_rate.toFixed(2) + "%";
+            }
         }
         
-        // Slightly update the stream table to look alive
+        // 2. Update Stream Table
         if(document.getElementById('view-streaming').style.display !== 'none') {
-            populateStreamTable();
+            const streamBody = document.getElementById('streamTableBody');
+            if(streamBody && data.recent_txs) {
+                streamBody.innerHTML = data.recent_txs.map(tx => `
+                    <tr>
+                        <td>${tx.tx_id}</td>
+                        <td>${tx.user_id}</td>
+                        <td style="color: var(--accent-green)">${tx.amount}</td>
+                        <td>${tx.merchant_id}</td>
+                        <td style="color: #8a8a9a">${tx.time}</td>
+                    </tr>
+                `).join('');
+            }
         }
-    }, 1000);
+        
+        // 3. Update Alerts List (Overview)
+        const alertsList = document.getElementById('alertsList');
+        if(alertsList && data.recent_alerts) {
+            alertsList.innerHTML = data.recent_alerts.slice(0, 5).map(a => `
+                <div class="alert-item ${a.type}">
+                    <div class="alert-header">
+                        <span class="alert-id">${a.id}</span>
+                        <span class="alert-amount">${a.amount}</span>
+                    </div>
+                    <div class="alert-rule">${a.rule}</div>
+                </div>
+            `).join('');
+        }
+        
+        // 4. Update Full Alerts Table
+        if(document.getElementById('view-alerts').style.display !== 'none') {
+            const fullBody = document.getElementById('fullAlertsBody');
+            if(fullBody && data.recent_alerts) {
+                fullBody.innerHTML = data.recent_alerts.map(a => `
+                    <tr>
+                        <td>${a.id}</td>
+                        <td><span class="badge-${a.type}">${a.type.toUpperCase()}</span></td>
+                        <td>${a.amount}</td>
+                        <td style="color: #8a8a9a">${a.rule}</td>
+                        <td style="color: #8a8a9a">${a.time}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+    };
+    
+    ws.onclose = () => {
+        console.log("WebSocket connection lost. Retrying in 5 seconds...");
+        setTimeout(initWebSocket, 5000);
+    };
 }

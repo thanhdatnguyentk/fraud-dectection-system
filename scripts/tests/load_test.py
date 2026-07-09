@@ -103,7 +103,7 @@ async def run_load_test(target: str, total_requests: int, concurrency: int):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--target", type=str, default="http://localhost:8000/api/v1/score")
+    parser.add_argument("--target", type=str, default="http://localhost:8001/api/v1/score")
     parser.add_argument("--requests", type=int, default=5000)
     parser.add_argument("--concurrency", type=int, default=100)
     args = parser.parse_args()
