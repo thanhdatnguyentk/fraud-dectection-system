@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # 1. Redpanda - Lightweight Kafka alternative
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: fds-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --set redpanda.auto_create_topics_enabled=true
+    ports:
+      - "19092:19092"
+      - "18082:18082"
+      - "9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 2. Redis - Single node with memory limit
+  redis:
+    image: redis:7-alpine
+    container_name: fds-redis
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 3. PostgreSQL 16 - Control Plane & Audit
+  postgres:
+    image: postgres:16-alpine
+    container_name: fds-postgres
+    environment:
+      POSTGRES_USER: fds_admin
+      POSTGRES_PASSWORD: fds_password
+      POSTGRES_DB: fds_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fds_admin -d fds_db"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 4. Prometheus - Metrics Scraper
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fds-prometheus
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+
+  # 5. Grafana - Observability Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fds-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  redpanda-data:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
