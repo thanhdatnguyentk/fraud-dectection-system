@@ -25,7 +25,10 @@ from scripts.common import hmac_hash, load_settings, new_ulid
 
 def _to_canonical(df: pd.DataFrame, hmac_key: str) -> pd.DataFrame:
     # ---- time ----
-    ts_ms = pd.to_datetime(df["trans_date_trans_time"], utc=True).astype("int64") // 1_000_000
+    # pandas returns datetime64[us, UTC] (microsecond resolution). To get
+    # epoch *milliseconds* we divide by 1000 (us→ms), not 1_000_000 (which
+    # would yield epoch seconds and lose precision).
+    ts_ms = pd.to_datetime(df["trans_date_trans_time"], utc=True).astype("int64") // 1000
 
     # ---- people ----
     user_id = df["cc_num"].astype("string").fillna("").map(lambda v: hmac_hash(f"cc={v}", hmac_key))
