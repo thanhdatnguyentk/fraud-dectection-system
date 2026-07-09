@@ -98,13 +98,11 @@ The system is a 7-stage pipeline laid out in `plans/data-synthesis-plan.md` §1.
 
 ## What is NOT yet built (do not assume it exists)
 
-- No API server (FastAPI is planned in Phase 4).
 - No DAG definitions (`pipelines/` is empty).
-- No rules engine — lands in Phase 4.
 
 If a task implies any of the above, implement the missing piece first; do not assume scaffolding.
 
-## What IS built (Phase 1 + Phase 2 + Phase 3)
+## What IS built (Phases 1-4)
 
 - Docker Compose infra (Redpanda, Redis, Postgres, Prometheus, Grafana).
 - 4 dataset canonicalization scripts + synthetic generator.
@@ -113,6 +111,9 @@ If a task implies any of the above, implement the missing piece first; do not as
 - 5 real-time features: `tx_count_10m`, `amt_sum_1h`, `max_amt_1h`, `distinct_mcc_1h`, `seconds_since_last_tx`.
 - Offline feature builder (`build_offline_features.py`) using DuckDB for fast Parquet aggregation.
 - XGBoost training pipeline (`train_xgb.py`) with auto ONNX export (`fraud_xgb.onnx`) and imbalanced class weighting.
+- Redis backfill script (`backfill_redis.py`) to push offline features to Redis.
+- FastAPI Scoring Engine (`api/main.py`) with `AsyncSingleFlight` cache stampede protection.
+- Rules Engine using `simpleeval` for hard/soft rules + ONNX Runtime for ML scoring.
 - Streamlit dashboard (`dashboard/app.py`) for live monitoring.
 - Redis key convention: `feat:user:{user_id}` (Hash), `sw:tx:10m:{user_id}` / `sw:txdata:1h:{user_id}` (Sorted Sets).
 - Scenario runner for fraud attack simulation.
