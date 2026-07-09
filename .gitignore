@@ -221,12 +221,17 @@ __marimo__/
 data/raw/**
 data/canonical/**
 data/artifacts/**
+data/features/**
 !data/raw/.gitkeep
 !data/canonical/.gitkeep
 !data/artifacts/.gitkeep
+!data/features/.gitkeep
 data/raw/**/_inprogress
 data/raw/**/*.tmp
 data/raw/**/.*lock
+
+# Trained model artifacts
+models/
 
 # Kaggle credentials
 kaggle.json
