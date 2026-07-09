@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+  
+  - job_name: "fds-api"
+    static_configs:
+      # Trỏ về API FastAPI đang chạy ở localhost máy chủ (từ góc nhìn của Docker container)
+      # Linux host.docker.internal usually requires extra setup, so we might use 172.17.0.1 (docker0 gateway) 
+      # or directly use host.docker.internal if configured. We'll stick to host.docker.internal for modern docker.
+      - targets: ["host.docker.internal:8000"] 
