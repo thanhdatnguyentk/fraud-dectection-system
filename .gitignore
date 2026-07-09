@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============= FDS-specific =============
+data/raw/**
+data/canonical/**
+data/artifacts/**
+!data/raw/.gitkeep
+!data/canonical/.gitkeep
+!data/artifacts/.gitkeep
+data/raw/**/_inprogress
+data/raw/**/*.tmp
+data/raw/**/.*lock
+
+# Kaggle credentials
+kaggle.json
+.env
