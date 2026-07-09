@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FDS Monitor | Aegis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=3">
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">
+            <div class="logo-icon"></div>
+            <h2>AEGIS <span>FDS</span></h2>
+        </div>
+        <nav>
+            <a href="#" class="nav-item active" data-target="view-overview"><span class="icon">⊞</span> Overview</a>
+            <a href="#" class="nav-item" data-target="view-streaming"><span class="icon">⚡</span> Streaming</a>
+            <a href="#" class="nav-item" data-target="view-models"><span class="icon">🧠</span> Models</a>
+            <a href="#" class="nav-item" data-target="view-alerts"><span class="icon">⚠️</span> Alerts <span class="badge">12</span></a>
+            <a href="#" class="nav-item" data-target="view-architecture"><span class="icon">🔗</span> Architecture</a>
+            <a href="#" class="nav-item"><span class="icon">⚙️</span> Settings</a>
+        </nav>
+        <div class="system-status">
+            <div class="status-indicator online"></div>
+            <span>System Online</span>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+        <header>
+            <h1 id="page-title">Real-Time Monitoring</h1>
+            <div class="user-profile">
+                <img src="https://i.pravatar.cc/150?img=11" alt="Admin">
+                <span>Admin</span>
+            </div>
+        </header>
+
+        <!-- VIEW: OVERVIEW -->
+        <div id="view-overview" class="view-section active">
+            <!-- Metrics Cards -->
+            <div class="metrics-grid">
+                <div class="card metric-card">
+                    <h3>Total TPS</h3>
+                    <div class="metric-value glowing-text-blue" id="tps-value">197.3</div>
+                    <div class="metric-trend positive">↑ 12% vs last min</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>Active Users (1h)</h3>
+                    <div class="metric-value">13,553</div>
+                    <div class="metric-trend">Stable</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>API Latency (P50)</h3>
+                    <div class="metric-value glowing-text-green" id="latency-value">158 ms</div>
+                    <div class="metric-trend negative">Target &lt; 50ms</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>Fraud Rate</h3>
+                    <div class="metric-value glowing-text-red" id="fraud-rate">0.03%</div>
+                    <div class="metric-trend negative">↑ 0.01% warning</div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <!-- Main Chart Area -->
+                <div class="card chart-container">
+                    <div class="card-header">
+                        <h2>Transaction Volume & Fraud Incidents</h2>
+                        <div class="controls">
+                            <button class="active">Live</button>
+                            <button>1H</button>
+                            <button>24H</button>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="liveChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Alerts / Recent Transactions -->
+                <div class="card alerts-container">
+                    <div class="card-header">
+                        <h2>Recent Detections</h2>
+                    </div>
+                    <div class="alerts-list" id="alertsList">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: STREAMING -->
+        <div id="view-streaming" class="view-section" style="display: none;">
+            <div class="metrics-grid">
+                <div class="card metric-card">
+                    <h3>Redpanda Status</h3>
+                    <div class="metric-value glowing-text-green">ONLINE</div>
+                    <div class="metric-trend">Port 19092</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>Consumer Lag</h3>
+                    <div class="metric-value">0 msgs</div>
+                    <div class="metric-trend positive">Real-time processing</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>Redis Feature Store</h3>
+                    <div class="metric-value glowing-text-blue">Connected</div>
+                    <div class="metric-trend">6379 / DB 0</div>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-header">
+                    <h2>Live Ingestion Stream (Raw TX)</h2>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>User ID</th>
+                                <th>Amount</th>
+                                <th>Merchant</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="streamTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: MODELS -->
+        <div id="view-models" class="view-section" style="display: none;">
+            <div class="metrics-grid">
+                <div class="card metric-card">
+                    <h3>Active Model</h3>
+                    <div class="metric-value">XGBoost FP16</div>
+                    <div class="metric-trend">fraud_xgb.onnx</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>AUC Score</h3>
+                    <div class="metric-value glowing-text-blue">0.8154</div>
+                    <div class="metric-trend positive">Validation Set</div>
+                </div>
+                <div class="card metric-card">
+                    <h3>Recall @ 1% FPR</h3>
+                    <div class="metric-value glowing-text-green">0.9971</div>
+                    <div class="metric-trend positive">High confidence</div>
+                </div>
+            </div>
+            
+            <div class="main-grid" style="margin-top: 24px;">
+                <div class="card chart-container">
+                    <div class="card-header">
+                        <h2>Top Feature Importances</h2>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="importanceChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card alerts-container">
+                    <div class="card-header">
+                        <h2>Rules Engine Configuration</h2>
+                    </div>
+                    <div class="alerts-list">
+                        <div class="alert-item decline">
+                            <div class="alert-header">
+                                <span class="alert-amount" style="color: white; font-size: 13px;">Hard Rule 1</span>
+                            </div>
+                            <div class="alert-rule">Amount exceeds $10,000</div>
+                        </div>
+                        <div class="alert-item decline">
+                            <div class="alert-header">
+                                <span class="alert-amount" style="color: white; font-size: 13px;">Hard Rule 2</span>
+                            </div>
+                            <div class="alert-rule">AI Score > 0.90</div>
+                        </div>
+                        <div class="alert-item review">
+                            <div class="alert-header">
+                                <span class="alert-amount" style="color: white; font-size: 13px;">Soft Rule 1</span>
+                            </div>
+                            <div class="alert-rule">AI Score > 0.70</div>
+                        </div>
+                        <div class="alert-item review">
+                            <div class="alert-header">
+                                <span class="alert-amount" style="color: white; font-size: 13px;">Soft Rule 2</span>
+                            </div>
+                            <div class="alert-rule">Int'l High Amount</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- VIEW: ALERTS -->
+        <div id="view-alerts" class="view-section" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Full Alert History</h2>
+                    <div class="controls">
+                        <button class="active">All</button>
+                        <button>Declined</button>
+                        <button>Review</button>
+                    </div>
+                </div>
+                <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>Severity</th>
+                                <th>Amount</th>
+                                <th>Triggered Rule</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fullAlertsBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: ARCHITECTURE -->
+        <div id="view-architecture" class="view-section" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h2>End-To-End Pipeline Visualization</h2>
+                </div>
+                <div class="pipeline-container">
+                    <!-- Flow diagram elements -->
+                    <div class="pipe-node">
+                        <div class="node-icon">👤</div>
+                        <div class="node-title">Client Simulator</div>
+                        <div class="node-desc">197 TPS JSON</div>
+                    </div>
+                    
+                    <div class="pipe-connector">
+                        <div class="data-packet"></div>
+                    </div>
+                    
+                    <div class="pipe-node">
+                        <div class="node-icon" style="color: var(--accent-red)">⚡</div>
+                        <div class="node-title">Redpanda Kafka</div>
+                        <div class="node-desc">Ingestion Buffer</div>
+                    </div>
+                    
+                    <div class="pipe-connector">
+                        <div class="data-packet"></div>
+                    </div>
+                    
+                    <div class="pipe-node split">
+                        <div class="node-icon" style="color: var(--accent-blue)">🔄</div>
+                        <div class="node-title">Stream Processor</div>
+                        <div class="node-desc">Sliding Window (Quix)</div>
+                    </div>
+                    
+                    <div class="pipe-connector">
+                        <div class="data-packet"></div>
+                    </div>
+                    
+                    <div class="pipe-node">
+                        <div class="node-icon" style="color: var(--accent-green)">🎯</div>
+                        <div class="node-title">FastAPI Scoring</div>
+                        <div class="node-desc">XGBoost ONNX + Rules</div>
+                    </div>
+                    
+                    <div class="pipe-connector">
+                        <div class="data-packet"></div>
+                    </div>
+                    
+                    <div class="pipe-node endpoint">
+                        <div class="node-icon">✔️ / ❌</div>
+                        <div class="node-title">Decision Output</div>
+                        <div class="node-desc">Approve or Decline</div>
+                    </div>
+                </div>
+                
+                <div class="pipeline-sub">
+                    <!-- Redis attached to Stream processor -->
+                    <div class="sub-connector"></div>
+                    <div class="pipe-node db">
+                        <div class="node-icon">🗄️</div>
+                        <div class="node-title">Redis Feature Store</div>
+                        <div class="node-desc">In-memory state</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script src="script.js?v=3"></script>
+</body>
+</html>
